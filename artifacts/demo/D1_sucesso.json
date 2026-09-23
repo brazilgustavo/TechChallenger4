@@ -57,7 +57,7 @@
   "intervencao": null,
   "texto_descartado": false,
   "auditoria_id": 1,
-  "correlation_id": "230ae32e-f96c-4c02-b02d-72664a811edc",
+  "correlation_id": "ef39a936-4ffa-46e3-9388-b9839ec26940",
   "raciocinio": [
     "Validação de contrato ok (24 features).",
     "Regras SINAIS_ALARME_OBST: 0 disparo(s).",

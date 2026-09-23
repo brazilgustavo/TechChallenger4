@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <title>Relatório Técnico — Guardiã AI (Saúde e Segurança da Mulher)</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 40px auto;
+            max-width: 900px;
+            line-height: 1.6;
+            color: #1e293b;
+            background: #ffffff;
+            padding: 0 20px;
+        }
+        h1, h2, h3, h4 {
+            color: #0f172a;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 8px;
+            margin-top: 24px;
+        }
+        code {
+            background: #f1f5f9;
+            color: #0f172a;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: Consolas, Monaco, monospace;
+            font-size: 0.9em;
+        }
+        pre code {
+            display: block;
+            padding: 12px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #cbd5e1;
+            padding: 10px 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f8fafc;
+            font-weight: 600;
+        }
+        tr:nth-child(even) {
+            background-color: #f8fafc;
+        }
+        blockquote {
+            border-left: 4px solid #2563eb;
+            margin: 16px 0;
+            padding: 8px 16px;
+            background-color: #eff6ff;
+            color: #1e40af;
+        }
+        @media print {
+            body {
+                margin: 0;
+                padding: 0;
+                max-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+<h1>Relatório Técnico — Assistente Clínico Hospitalar em Saúde da Mulher</h1>
+<p><strong>Tech Challenge FIAP — Pós Tech em IA para Devs — Fase 3</strong>
+<strong>Grupo:</strong>
+<em>- Evandro Rosa Sampaio
+- Gustavo Brasil Pires Octaviano
+- Paulo Roberto Goncalves
+- Wallace Gomes da Silva</em></p>
+<p>Apresentação: https://www.youtube.com/watch?v=4Wgx4tiHWQw
+Repositório: https://drive.google.com/drive/folders/1kEkWSSvDFLWd-Slddb83B8r4_Ff1fdFx?usp=sharing</p>
+<hr />
+<h2>1. Sumário Executivo</h2>
+<p>Assistente virtual de apoio à <strong>equipe de saúde</strong> (médicos, enfermeiros, residentes, técnicos) especializado em <strong>saúde e segurança da mulher</strong>. Combina:</p>
+<ul>
+<li><strong>Fine-tuning QLoRA</strong> do Llama 3.2 3B Instruct sobre 6.414 pares Q&amp;A sintéticos derivados de 39 PDFs de protocolos do MS, FEBRASGO, OMS e INCA</li>
+<li><strong>RAG</strong> com Chroma sobre 1.392 chunks dos mesmos protocolos</li>
+<li><strong>9 tools LangChain</strong> consultando SQLite mock (50 pacientes) com auditoria LGPD</li>
+<li><strong>4 workflows LangGraph</strong> com StateGraph explícito cobrindo Triagem Ginecológica, Detecção de Violência, Obstétrico e Prevenção</li>
+<li><strong>UI Gradio</strong> demonstrativa</li>
+</ul>
+<hr />
+<h2>2. Arquitetura</h2>
+<pre><code class="language-mermaid">flowchart TB
+    UI[UI Gradio&lt;br/&gt;profissional de saúde]
+    UI --&gt; Chat[Chat Tab&lt;br/&gt;perguntas livres]
+    UI --&gt; Triagem[Triagem Tab&lt;br/&gt;fluxos clínicos]
+
+    Chat --&gt; Agent[Agente ReAct&lt;br/&gt;LangChain]
+    Triagem --&gt; WFs[4 StateGraphs&lt;br/&gt;LangGraph]
+
+    Agent --&gt;|tool calling| Tools[9 StructuredTools]
+    WFs --&gt;|reusa| Tools
+
+    Tools --&gt; RAG[(Chroma RAG&lt;br/&gt;1.392 chunks)]
+    Tools --&gt; DB[(SQLite mock&lt;br/&gt;7 tabelas + log_acesso)]
+    Tools -.-&gt;|determinístico| Matriz[Matriz Violência&lt;br/&gt;+ alertas exames]
+
+    Agent --&gt; LLM[Llama 3.2 3B Instruct&lt;br/&gt;+ adapter QLoRA]
+    WFs --&gt; LLM
+</code></pre>
+<p><strong>Princípio central:</strong> o LLM dá o <strong>tom</strong> clínico (fine-tuning); o RAG dá a <strong>fonte</strong> citável; as regras determinísticas (matriz SINAN, alertas de exames) dão as <strong>garantias</strong> que não podem depender do LLM.</p>
+<p>Detalhes em <a href="ARQUITETURA.md"><code>ARQUITETURA.md</code></a>.</p>
+<hr />
+<h2>3. Fluxograma LangChain — Agente Conversacional</h2>
+<p>Usado no chat livre da UI para responder perguntas clínicas gerais via ReAct (<code>create_react_agent</code>).</p>
+<pre><code class="language-mermaid">flowchart LR
+    User[Pergunta do&lt;br/&gt;profissional] --&gt; Prefix[Prefixa contexto&lt;br/&gt;paciente_id=N]
+    Prefix --&gt; LLM1[LLM lê System Prompt&lt;br/&gt;+ pergunta + histórico]
+    LLM1 --&gt;|decide tool| Tool[Tool relevante&lt;br/&gt;ex: buscar_protocolo]
+    Tool --&gt;|resultado| LLM2[LLM lê resultado]
+    LLM2 --&gt;|próxima tool?| LLM1
+    LLM2 --&gt;|resposta pronta| Final[Resposta + tool_calls&lt;br/&gt;visíveis na UI]
+</code></pre>
+<p><strong>As 9 tools disponíveis:</strong></p>
+<p>| # | Tool | Tipo |
+|---|---|---|
+| 1 | <code>buscar_protocolo(query, categoria?)</code> | RAG Chroma |
+| 2 | <code>consultar_prontuario(paciente_id)</code> | SQL |
+| 3 | <code>historico_exames(paciente_id, tipo?)</code> | SQL |
+| 4 | <code>exames_atrasados(paciente_id)</code> | Regras MS (papa/mamo) |
+| 5 | <code>consultar_medicamento(termo)</code> | SQL + categoria gestacional |
+| 6 | <code>calendario_menstrual(paciente_id)</code> | SQL + média móvel |
+| 7 | <code>avaliar_padrao_violencia(sinais)</code> | Matriz 12 sinais |
+| 8 | <code>consultar_violencia(paciente_id, motivo)</code> | <strong>Auditado LGPD</strong> |
+| 9 | <code>registrar_violencia(paciente_id, ...)</code> | <strong>Auditado LGPD + SINAN</strong> |</p>
+<p>Código em <a href="lib/agent.py"><code>lib/agent.py</code></a> e <a href="lib/tools.py"><code>lib/tools.py</code></a>.</p>
+<hr />
+<h2>4. Fluxograma LangGraph — Fluxos Clínicos</h2>
+<p>Usados na aba &quot;Triagem Ativa&quot; da UI quando o cenário é predeterminado. Cada workflow é um StateGraph com nodes (LLM + determinísticos) e edges (incluindo condicionais por gravidade). Todo workflow encerra em <code>compilar_resposta</code>, devolvendo <code>{conduta, raciocinio[], fontes[], confianca}</code> — atendendo o requisito de <strong>explainability</strong>.</p>
+<h3>4.1 Triagem Ginecológica</h3>
+<pre><code class="language-mermaid">flowchart TD
+    START([START]) --&gt; parse_sintomas[parse_sintomas&lt;br/&gt;LLM extrai sintomas]
+    parse_sintomas --&gt; analisar_risco[analisar_risco&lt;br/&gt;RAG + diferenciais]
+    analisar_risco --&gt; classificar_urgencia{classificar_urgencia&lt;br/&gt;emergência?}
+    classificar_urgencia --&gt;|sim| agendamento
+    classificar_urgencia --&gt;|não| sugerir_exames[sugerir_exames]
+    sugerir_exames --&gt; orientacoes_iniciais[orientacoes_iniciais]
+    orientacoes_iniciais --&gt; agendamento[agendamento&lt;br/&gt;especialidade + prazo]
+    agendamento --&gt; compilar_resposta[compilar_resposta]
+    compilar_resposta --&gt; END([END])
+</code></pre>
+<p>Edge crítica: <code>emergência?</code> → pula sugestão ambulatorial. Garantia: lista <code>SINAIS_EMERGENCIA</code> hard-coded.</p>
+<h3>4.2 Detecção de Violência Doméstica</h3>
+<pre><code class="language-mermaid">flowchart TD
+    START([START]) --&gt; extrair_sinais[extrair_sinais&lt;br/&gt;LLM mapeia em 12 chaves canônicas]
+    extrair_sinais --&gt; avaliar_risco[avaliar_risco&lt;br/&gt;matriz determinística]
+    avaliar_risco --&gt; rota{nível?}
+    rota --&gt;|alta_suspeita| protocolo_seguranca[protocolo_seguranca&lt;br/&gt;ambiente reservado]
+    rota --&gt;|atencao / sem_alerta| acionar_equipe
+    protocolo_seguranca --&gt; acionar_equipe[acionar_equipe&lt;br/&gt;assistência social, psicologia, Delegacia]
+    acionar_equipe --&gt; documentar_seguro[documentar_seguro&lt;br/&gt;SINAN + log_acesso]
+    documentar_seguro --&gt; definir_seguimento[definir_seguimento]
+    definir_seguimento --&gt; compilar_resposta[compilar_resposta]
+    compilar_resposta --&gt; END([END])
+</code></pre>
+<p>Edge crítica: <code>nível?</code> → ativa protocolo de segurança. Garantia: matriz de 12 sinais com pesos (Norma Técnica MS).</p>
+<h3>4.3 Obstétrico</h3>
+<pre><code class="language-mermaid">flowchart TD
+    START([START]) --&gt; coletar[coletar_dados_gestante&lt;br/&gt;LLM extrai IG, paridade, antecedentes]
+    coletar --&gt; avaliar[avaliar_risco_gestacional&lt;br/&gt;habitual / alto risco]
+    avaliar --&gt; detectar[detectar_alertas_urgencia&lt;br/&gt;regex sinais MS/FEBRASGO]
+    detectar --&gt; orientacoes[orientacoes_especificas&lt;br/&gt;RAG]
+    orientacoes --&gt; agendar[agendar_exames&lt;br/&gt;rotina por IG + risco]
+    agendar --&gt; acompanhamento[definir_acompanhamento&lt;br/&gt;periodicidade]
+    acompanhamento --&gt; compilar_resposta[compilar_resposta]
+    compilar_resposta --&gt; END([END])
+</code></pre>
+<p>Edge crítica: <code>emergência obstétrica?</code> → PS obstétrico. Garantia: regex de sinais de alarme MS/FEBRASGO.</p>
+<h3>4.4 Prevenção</h3>
+<pre><code class="language-mermaid">flowchart TD
+    START([START]) --&gt; carregar[carregar_historico&lt;br/&gt;prontuário + exames]
+    carregar --&gt; identificar[identificar_exames_devidos&lt;br/&gt;atrasados + a vencer]
+    identificar --&gt; orientacoes[orientacoes_preventivas&lt;br/&gt;RAG + perfil]
+    orientacoes --&gt; agendar[agendar_automaticamente&lt;br/&gt;slot por prioridade]
+    agendar --&gt; lembretes[gerar_lembretes&lt;br/&gt;sms / whatsapp / email]
+    lembretes --&gt; compilar_resposta[compilar_resposta]
+    compilar_resposta --&gt; END([END])
+</code></pre>
+<p>Garantia determinística: thresholds papa 25-64a / 3a, mamo 50-69a / 2a.</p>
+<p>Código em <a href="lib/workflows/"><code>lib/workflows/</code></a>. Diagramas auto-gerados também disponíveis em <a href="09_demo_workflows.ipynb"><code>09_demo_workflows.ipynb</code></a> via <code>wf.get_graph().draw_mermaid()</code>.</p>
+<hr />
+<h2>5. Stack Técnico</h2>
+<p>| Camada | Tecnologia |
+|---|---|
+| LLM base | <code>meta-llama/Llama-3.2-3B-Instruct</code> + adapter QLoRA |
+| Gerador do dataset | <code>meta-llama/Llama-3.1-8B-Instruct</code> (4-bit NF4) |
+| Fine-tuning | QLoRA (r=16, α=32, 7 projeções) + TRL SFTTrainer |
+| Embeddings | <code>paraphrase-multilingual-MiniLM-L12-v2</code> (384d) |
+| Vector store | Chroma persistente |
+| Orquestração | LangChain + LangGraph (StateGraph + ReAct) |
+| Base estruturada | SQLite (7 tabelas + log_acesso LGPD) |
+| UI | Gradio Blocks |
+| Runtime | Google Colab Pro (A100/L4) |</p>
+<hr />
+<h2>6. Resultados do Fine-Tuning</h2>
+<p>Comparação base vs FT (run <code>llama32-3b-saude-mulher_20260524_0217</code>) em 30 amostras aleatórias do test set (n=640):</p>
+<p>| Métrica | Base | Fine-tuned | Direção desejada |
+|---|---|---|---|
+| ROUGE-L | 0.101 | 0.095 (-5.9%) | ⬆ |
+| Cita serviço da rede em sensitive | ~33% | <strong>~100%</strong> | ⬆ |
+| Comprimento médio (chars) | 1.239 | 1.470 (+18.6%) | — |</p>
+<p><strong>Vitória central:</strong> em casos sensitive (violência, saúde mental), citação dos serviços da rede (SINAN, Ligue 180, CVV, CAPS) saltou de ~33% para ~100% — era o objetivo primário do prompt diferenciado durante geração do dataset.</p>
+<p><strong>Regressão identificada:</strong> ~60% das respostas FT apresentam loops degenerativos. Mitigação aplicada em <a href="lib/llm.py"><code>lib/llm.py</code></a>: <code>repetition_penalty=1.2</code> + <code>no_repeat_ngram_size=4</code> + <code>max_new_tokens=256</code>.</p>
+<p>Análise crítica completa em <a href="RELATORIO_TECNICO_DETALHADO.md#43-an%C3%A1lise-cr%C3%ADtica-honesta-dos-resultados"><code>RELATORIO_TECNICO_DETALHADO.md</code> §4.3</a>.</p>
+<hr />
+<h2>7. Segurança e LGPD</h2>
+<p>| Mecanismo | Implementação |
+|---|---|
+| Limites no system prompt | Nunca prescrever, nunca diagnosticar, nunca direcionar à paciente |
+| Tools com validação | <code>consultar_violencia</code> exige motivo ≥ 5 chars; recusa silenciosa caso contrário |
+| Kill-switch nos workflows | <code>documentar_seguro</code> só registra com <code>confirmacao_clinica=True</code> |
+| Auditoria LGPD | Tabela <code>log_acesso</code> (timestamp, profissional, paciente_id, motivo) |
+| Matriz determinística | Decisão de notificar SINAN é por regra, não pelo LLM |
+| Identificação por ID | Tools sempre recebem <code>paciente_id: int</code>, sem busca por nome |
+| CPF protegido | Hash SHA-256, nunca CPF em claro (mesmo no mock) |</p>
+<p><strong>Não implementado (justificado no relatório detalhado §4.5):</strong></p>
+<ul>
+<li>Criptografia at-rest (dados são mock 100% sintético via Faker pt_BR)</li>
+<li>Segundo passe LLM para validar a resposta (substituído por 5 mecanismos determinísticos para preservar a latência clínica de 5-15s já existente)</li>
+</ul>
+<hr />
+<h2>8. Atendimento aos Requisitos da Fase 3</h2>
+<p>| Requisito | Atendimento |
+|---|---|
+| <strong>1. Fine-tuning LLM especializado</strong> | ✅ QLoRA em 5.134 ex SFT derivados de 39 PDFs MS/FEBRASGO/OMS/INCA |
+| <strong>1.b — Modelos de documentos</strong> | ✅ 6 templates em <a href="lib/templates/"><code>lib/templates/</code></a> (BI-RADS, colposcopia, receita hormonal, pré-natal/puerpério, SINAN, relatório de violência) |
+| <strong>2. Assistente LangChain</strong> | ✅ Agente ReAct + RAG + 9 tools + UI Gradio |
+| <strong>3. Fluxos LangGraph</strong> | ✅ 4 StateGraphs explícitos com edges condicionais por gravidade |
+| <strong>4. Segurança e validação</strong> | ✅ Limites no prompt + log_acesso LGPD + SINAN obrigatório em alta suspeita; ⚠️ criptografia at-rest e segundo passe LLM omitidos com justificativa (ver §7) |
+| <strong>4.b — Relatórios de utilização</strong> | ✅ <a href="10_relatorio_utilizacao.ipynb"><code>10_relatorio_utilizacao.ipynb</code></a> |
+| <strong>Repositório Git</strong> | ✅ 10 notebooks + módulos <code>lib/</code> + dataset sintético + templates |
+| <strong>Relatório técnico</strong> | ✅ este documento + <a href="RELATORIO_TECNICO_DETALHADO.md"><code>RELATORIO_TECNICO_DETALHADO.md</code></a> |
+| <strong>Diagramas dos fluxos</strong> | ✅ Mermaid (§3 e §4 acima) + auto-gerados em <a href="09_demo_workflows.ipynb"><code>09_demo_workflows.ipynb</code></a> |
+| <strong>Avaliação especializada</strong> | ✅ ROUGE + heurísticas alinhadas ao enunciado (§6) |
+| <strong>Vídeo até 15 min</strong> | ✅ Ver <a href="ROTEIRO_VIDEO.md"><code>ROTEIRO_VIDEO.md</code></a> |</p>
+<hr />
+<h2>9. Limitações Reconhecidas</h2>
+<ol>
+<li><strong>Validação clínica formal pendente</strong> — dataset sintético gerado por LLM; sem revisão por especialistas em ginecologia/obstetrícia</li>
+<li><strong>Tamanho amostral pequeno</strong> na avaliação (n=30 de 640 no test set)</li>
+<li><strong>ROUGE-L é proxy fraco</strong> para conteúdo clínico (mede sobreposição lexical, não correção)</li>
+<li><strong>Tool calling do 3B</strong> pode ter taxa de erro maior em cenários complexos (fallback ReAct presente)</li>
+<li><strong>Sem análise quantitativa de disparidade por subgrupo demográfico</strong> (raça, classe, região)</li>
+</ol>
+<hr />
+<h2>10. Próximos Passos</h2>
+<ol>
+<li>Validação clínica formal por especialistas em ginecologia/obstetrícia</li>
+<li>Iteração 2 do treino com early stopping baseado em ROUGE no val</li>
+<li>Análise de equidade por subgrupo demográfico</li>
+<li>Criptografia at-rest (Fernet ou KMS) para registros sensíveis</li>
+<li>Deploy: FastAPI + PostgreSQL + pgvector + UI React</li>
+</ol>
+<hr />
+<h2>Anexo — Pipeline Reproducível (10 Notebooks)</h2>
+<p>| # | Notebook | Output |
+|---|---|---|
+| 01 | <code>01_extrair_protocolos.ipynb</code> | PDFs → JSON estruturado |
+| 02 | <code>02_gerar_dataset_sft.ipynb</code> | 6.414 pares Q&amp;A (5134/640/640) |
+| 03 | <code>03_treinar_qlora.ipynb</code> | Adapter LoRA (~30-50 MB) |
+| 04 | <code>04_avaliar_modelo.ipynb</code> | <code>eval_report.json</code> + sidebyside |
+| 05 | <code>05_gerar_dados_mock.ipynb</code> | <code>hospital.db</code> (50 pacientes) |
+| 06 | <code>06_indexar_protocolos.ipynb</code> | Chroma (1.392 chunks) |
+| 07 | <code>07_testar_tools_alertas.ipynb</code> | Sanity check das 9 tools |
+| 08 | <code>08_app_gradio.ipynb</code> | URL pública do app |
+| 09 | <code>09_demo_workflows.ipynb</code> | Demos + Mermaid auto-gerado |
+| 10 | <code>10_relatorio_utilizacao.ipynb</code> | Relatório gerencial |</p>
+<hr />
+
+</body>
+</html>

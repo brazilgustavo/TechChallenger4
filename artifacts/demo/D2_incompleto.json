@@ -25,7 +25,7 @@
   },
   "texto_descartado": false,
   "auditoria_id": 2,
-  "correlation_id": "1ff90ad7-76bb-4e7d-8166-405edf788722",
+  "correlation_id": "8ed75918-dee4-4d41-beb9-cd2cae462e4f",
   "raciocinio": [
     "Dados incompletos: ['pas_mmhg']",
     "Caminho dados_incompletos (sem imputação, sem RAG).",

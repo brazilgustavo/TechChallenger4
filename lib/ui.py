@@ -501,13 +501,102 @@ def build_ui(agent, conn, default_usuario: str = 'sessao_demo',
                 f'Detalhe técnico: `{type(exc).__name__}`.'
             )
 
+    def on_carregar_paciente_ml(paciente_id):
+        if not paciente_id:
+            return (
+                '{\n'
+                '  "idade": 28,\n'
+                '  "imc_pre_gestacional": 24.0,\n'
+                '  "ig_semanas": 22,\n'
+                '  "gestacoes": 2,\n'
+                '  "partos": 1,\n'
+                '  "abortos": 0,\n'
+                '  "pas_mmhg": 118,\n'
+                '  "pad_mmhg": 72,\n'
+                '  "has_cronica": false,\n'
+                '  "diabetes_previo": false,\n'
+                '  "gemelaridade": false\n'
+                '}'
+            )
+        try:
+            from .ml.schema import features_de_paciente
+            payload, ausentes = features_de_paciente(conn, int(paciente_id))
+            defaults = {
+                'imc_pre_gestacional': 24.0,
+                'pas_mmhg': 120,
+                'pad_mmhg': 80,
+                'has_cronica': False,
+                'diabetes_previo': False,
+                'gemelaridade': False,
+            }
+            for k, v in defaults.items():
+                if k not in payload:
+                    payload[k] = v
+            return json.dumps(payload, indent=2, ensure_ascii=False)
+        except Exception as exc:
+            return f'// Erro ao carregar paciente {paciente_id}: {exc}'
+
     # ---- layout ----
 
     css = """
-    .alertas-box { background: #fffaf0; padding: 12px;
-                   border-left: 4px solid #d97706; border-radius: 4px; }
-    .out-box { background: #f8fafc; padding: 16px;
-               border-left: 4px solid #2563eb; border-radius: 4px; min-height: 200px; }
+    /* Garantir contraste e legibilidade no tema claro */
+    .alertas-box {
+        background-color: #fffaf0 !important;
+        color: #78350f !important;
+        padding: 12px;
+        border-left: 4px solid #d97706;
+        border-radius: 4px;
+    }
+    .alertas-box, .alertas-box *, .alertas-box p, .alertas-box span, .alertas-box div {
+        color: #78350f !important;
+    }
+
+    .out-box {
+        background-color: #f8fafc !important;
+        color: #0f172a !important;
+        padding: 16px;
+        border-left: 4px solid #2563eb;
+        border-radius: 4px;
+        min-height: 200px;
+    }
+    .out-box, .out-box *, .out-box p, .out-box h1, .out-box h2, .out-box h3, .out-box h4,
+    .out-box li, .out-box span, .out-box div, .out-box summary, .out-box details, .out-box strong {
+        color: #0f172a !important;
+    }
+    .out-box code {
+        background-color: #e2e8f0 !important;
+        color: #1e293b !important;
+    }
+
+    /* Garantir contraste e legibilidade no tema escuro (Dark Mode) */
+    .dark .alertas-box, [data-theme='dark'] .alertas-box {
+        background-color: #2d2006 !important;
+        color: #fef3c7 !important;
+        border-left: 4px solid #f59e0b;
+    }
+    .dark .alertas-box *, [data-theme='dark'] .alertas-box * {
+        color: #fef3c7 !important;
+    }
+
+    .dark .out-box, [data-theme='dark'] .out-box {
+        background-color: #1e293b !important;
+        color: #f8fafc !important;
+        border-left: 4px solid #3b82f6;
+    }
+    .dark .out-box *, [data-theme='dark'] .out-box *,
+    .dark .out-box p, .dark .out-box h1, .dark .out-box h2, .dark .out-box h3, .dark .out-box h4,
+    .dark .out-box li, .dark .out-box span, .dark .out-box div, .dark .out-box summary, .dark .out-box details, .dark .out-box strong {
+        color: #f8fafc !important;
+    }
+    .dark .out-box code {
+        background-color: #334155 !important;
+        color: #38bdf8 !important;
+    }
+
+    /* Correção global para inputs e textareas */
+    input, textarea, select {
+        color: var(--body-text-color) !important;
+    }
     """
 
     with gr.Blocks(title='Assistente Clínico — Saúde da Mulher',
@@ -554,7 +643,7 @@ def build_ui(agent, conn, default_usuario: str = 'sessao_demo',
                             '_Pergunta livre ao assistente, que escolhe quais '
                             'ferramentas chamar e cita protocolos quando aplicável._'
                         )
-                        chatbot = gr.Chatbot(height=460, label='Diálogo clínico')
+                        chatbot = gr.Chatbot(type='messages', height=460, label='Diálogo clínico')
                         with gr.Row():
                             entrada = gr.Textbox(
                                 placeholder='Ex.: Conduta em LSIL em paciente <25a; '
@@ -686,6 +775,11 @@ def build_ui(agent, conn, default_usuario: str = 'sessao_demo',
                             'Opcionais podem faltar (imputados). Obrigatórios ausentes **não** são imputados.\n\n'
                             '_Resultado de apoio à decisão. Dados sintéticos. Não substitui avaliação clínica._'
                         )
+                        with gr.Row():
+                            ml_load_btn = gr.Button(
+                                '📂 Carregar dados da paciente selecionada (sidebar)',
+                                size='sm',
+                            )
                         ml_json = gr.Textbox(
                             label='Payload JSON das features',
                             lines=12,
@@ -704,6 +798,11 @@ def build_ui(agent, conn, default_usuario: str = 'sessao_demo',
                                 '  "gemelaridade": false\n'
                                 '}'
                             ),
+                        )
+                        ml_load_btn.click(
+                            on_carregar_paciente_ml,
+                            inputs=[paciente],
+                            outputs=[ml_json],
                         )
                         ml_desc = gr.Textbox(
                             label='Descrição clínica (regras de alarme)',

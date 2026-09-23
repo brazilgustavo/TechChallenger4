@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
 os.environ.setdefault('PERFIL_EXECUCAO', 'demo-cpu')
 
 from lib.agent import build_agent
-from lib.db import init_schema
+from lib.db import connect, init_schema
 from lib.llm_fake import FakeChatModel
 from lib.mock_data import populate
 from lib.tools import build_langchain_tools
@@ -43,9 +43,7 @@ class _Retriever:
 
 def main():
     db = Path(os.environ.get('HOSPITAL_DB_PATH', ROOT / 'artifacts' / 'demo' / 'hospital_ui.db'))
-    db.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db)
-    conn.row_factory = sqlite3.Row
+    conn = connect(db)
     init_schema(conn)
     n = conn.execute('SELECT COUNT(*) AS c FROM pacientes').fetchone()['c']
     if n == 0:

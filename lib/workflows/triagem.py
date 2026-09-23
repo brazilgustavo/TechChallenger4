@@ -241,7 +241,7 @@ def _compilar_resposta(state: TriagemState) -> dict:
 
 def _rota_urgencia(state: TriagemState) -> str:
     """Edge condicional: emergência pula sugerir_exames/orientações e vai direto a agendamento."""
-    return 'agendamento' if state.get('urgencia') == 'emergencia' else 'sugerir_exames'
+    return 'node_agendamento' if state.get('urgencia') == 'emergencia' else 'sugerir_exames'
 
 
 def build_triagem_workflow(chat_model, conn, retriever):
@@ -257,8 +257,8 @@ def build_triagem_workflow(chat_model, conn, retriever):
     g.add_node('analisar_risco', _analisar_risco(chat_model, retriever))
     g.add_node('classificar_urgencia', _classificar_urgencia(chat_model))
     g.add_node('sugerir_exames', _sugerir_exames(chat_model, retriever))
-    g.add_node('orientacoes_iniciais', _orientacoes_iniciais(chat_model))
-    g.add_node('agendamento', _agendamento)
+    g.add_node('node_orientacoes_iniciais', _orientacoes_iniciais(chat_model))
+    g.add_node('node_agendamento', _agendamento)
     g.add_node('compilar_resposta', _compilar_resposta)
 
     g.add_edge(START, 'parse_sintomas')
@@ -266,10 +266,10 @@ def build_triagem_workflow(chat_model, conn, retriever):
     g.add_edge('analisar_risco', 'classificar_urgencia')
     g.add_conditional_edges('classificar_urgencia', _rota_urgencia,
                             {'sugerir_exames': 'sugerir_exames',
-                             'agendamento':    'agendamento'})
-    g.add_edge('sugerir_exames', 'orientacoes_iniciais')
-    g.add_edge('orientacoes_iniciais', 'agendamento')
-    g.add_edge('agendamento', 'compilar_resposta')
+                             'agendamento':    'node_agendamento'})
+    g.add_edge('sugerir_exames', 'node_orientacoes_iniciais')
+    g.add_edge('node_orientacoes_iniciais', 'node_agendamento')
+    g.add_edge('node_agendamento', 'compilar_resposta')
     g.add_edge('compilar_resposta', END)
 
     return g.compile()
